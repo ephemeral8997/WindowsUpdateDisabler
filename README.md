@@ -1,68 +1,85 @@
-# Windows Update Service Controller
+# WindowsUpdateDisabler
 
-A simple GUI application to enable or disable Windows Update by modifying the ImagePath registry value.
+GUI utility to enable or disable the **Windows Update (wuauserv)** service by modifying its service `ImagePath` registry entry.
 
-## How it Works
+Built with **Python + Tkinter**.
 
-The application checks the `ImagePath` value in:
+## What It Does
+
+* Detects current Windows Update state
+* Toggles the service by swapping:
+
+  * `svchost.exe` ↔ `svchost0.exe`
+* Updates take effect immediately
+* No background services, no persistence
+
+## How It Works (Technical)
+
+The tool reads and writes:
+
 ```
-Computer\HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\wuauserv
+HKLM\SYSTEM\CurrentControlSet\Services\wuauserv\ImagePath
 ```
 
-- **Enabled**: `%systemroot%\system32\svchost.exe -k netsvcs -p`
-- **Disabled**: `%systemroot%\system32\svchost0.exe -k netsvcs -p`
+If `ImagePath` points to `svchost.exe`, Windows Update is considered **enabled**.
+If it points to `svchost0.exe`, it is considered **disabled**.
 
-## Features
+This prevents the Windows Update service from starting **and immediately breaks it if it is already running**.
 
-- Displays current Windows Update service status
-- Shows the actual ImagePath registry value
-- One-click enable/disable functionality
-- Real-time status updates
-- Clean, intuitive interface
+## Compatibility
+
+* Windows versions that expose the `wuauserv` service registry key:
+
+  * Windows 7
+  * Windows 8 / 8.1
+  * Windows 10
+  * Windows 11
+  * Windows Server (corresponding releases)
+
+Not tested on versions older than Windows 7.
 
 ## Requirements
 
-- Windows operating system
-- Python 3.6 or higher with tkinter (usually included)
-- Administrative privileges to modify registry
+* Administrator privileges (mandatory)
+* Python 3.x (only if running from source)
 
 ## Usage
 
-1. Run the application as Administrator
-2. The current status will be displayed automatically
-3. Click "Enable Windows Update" or "Disable Windows Update" to toggle the service
-4. Restart the Windows Update service or reboot your computer for changes to take effect
+Run the executable **as Administrator**.
 
-## Installation
+If running from source, the Python process **must be launched from an elevated (Administrator) command prompt**.
 
-### Option 1: Download Executable (Recommended)
-Pre-built executables are available in the **GitHub Releases** section:
+Or from source:
 
-1. Go to the [Releases page](../../releases)
-2. Download the latest `WindowsUpdateController.exe`
-3. Run the executable as Administrator
-
-**Features:**
-- Clear visible buttons for enable/disable
-- Real-time status display
-- Registry path viewer
-- Error handling for permissions
-- Standalone executable (no Python required)
-
-### Option 2: Run from Python
-To run the source code:
-
-```bash
-python windows_update_disabler.py
+```
+python main.py
 ```
 
-### Option 3: Command Line Version
-For testing without GUI:
+## Builds
 
-```bash
-python cli_version.py
-```
+Prebuilt binaries are produced automatically via **GitHub Actions**.
 
-**Important**: Run as Administrator for registry modification privileges.
+## Important Notes
 
-**Important**: This application modifies Windows registry values. Use with caution and create a system backup before making changes.
+* Microsoft Store and some Windows components rely on Windows Update.
+* To install Store apps, temporarily re-enable Windows Update.
+* This tool does not uninstall or permanently break Windows Update.
+
+## Screenshots
+
+### Windows Update Enabled
+
+![Main UI](screenshots/enabled.png)
+
+### Windows Update Disabled
+
+![Main UI](screenshots/disabled.png)
+
+## Warnings
+
+* Direct registry modification
+* No warranty, use at your own risk
+
+## License
+
+MIT
