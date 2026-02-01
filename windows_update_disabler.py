@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import messagebox
 import winreg
+import subprocess
 
 
 class WindowsUpdateDisabler:
     # Constants
     REGISTRY_PATH = r"SYSTEM\CurrentControlSet\Services\wuauserv"
     VALUE_NAME = "ImagePath"
+    SERVICE_NAME = "wuauserv"
     ENABLED_HOST = "svchost.exe"
     DISABLED_HOST = "svchost0.exe"
 
@@ -209,6 +211,12 @@ class WindowsUpdateDisabler:
 
         if messagebox.askyesno("Confirm Action", confirm_msg):
             self._update_registry(new_path)
+
+            if enabled:  # Disabling → stop service
+                self._control_service("stop")
+            else:  # Enabling → start service
+                self._control_service("start")
+
             messagebox.showinfo(
                 "Success",
                 f"Windows Update service has been {action}d.\n\nChanges take effect immediately.",
@@ -226,6 +234,34 @@ class WindowsUpdateDisabler:
             winreg.HKEY_LOCAL_MACHINE, self.REGISTRY_PATH, 0, winreg.KEY_WRITE
         ) as key:
             winreg.SetValueEx(key, self.VALUE_NAME, 0, winreg.REG_EXPAND_SZ, new_path)
+
+    def _control_service(self, action):
+        """Stop/start the service after registry modification"""
+        try:
+            cmd = ["net", action, self.SERVICE_NAME]
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=15,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            if (
+                result.returncode != 0
+                and "The requested service has already been" not in result.stderr
+            ):
+                raise RuntimeError(
+                    result.stderr.strip()
+                    or f"Command failed with code {result.returncode}"
+                )
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"Service {action} timed out after 15 seconds")
+        except Exception as e:
+            # don't fail the entire operation if service control fails
+            messagebox.showwarning(
+                "Service Control Warning",
+                f"Registry updated successfully, but failed to {action} service:\n{str(e)}",
+            )
 
 
 def main():
