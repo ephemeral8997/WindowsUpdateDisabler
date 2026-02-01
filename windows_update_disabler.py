@@ -5,14 +5,12 @@ import subprocess
 
 
 class WindowsUpdateDisabler:
-    # Constants
     REGISTRY_PATH = r"SYSTEM\CurrentControlSet\Services\wuauserv"
     VALUE_NAME = "ImagePath"
     SERVICE_NAME = "wuauserv"
     ENABLED_HOST = "svchost.exe"
     DISABLED_HOST = "svchost0.exe"
 
-    # UI Constants
     COLORS = {
         "bg": "#f0f0f0",
         "white": "white",
@@ -61,22 +59,16 @@ class WindowsUpdateDisabler:
         main_container = tk.Frame(self.root, bg=self.COLORS["bg"])
         main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        self._create_title(main_container)
-        self._create_status_frame(main_container)
-        self._create_action_buttons(main_container)
-
-    def _create_title(self, parent):
         tk.Label(
-            parent,
+            main_container,
             text="Windows Update Service Controller",
             font=("Segoe UI", 14),
             bg=self.COLORS["bg"],
             fg="black",
         ).pack(pady=(10, 20))
 
-    def _create_status_frame(self, parent):
         status_frame = tk.Frame(
-            parent, bg=self.COLORS["white"], relief=tk.SOLID, borderwidth=1
+            main_container, bg=self.COLORS["white"], relief=tk.SOLID, borderwidth=1
         )
         status_frame.pack(fill=tk.X, pady=(0, 15), padx=20)
 
@@ -97,9 +89,8 @@ class WindowsUpdateDisabler:
         )
         self.status_indicator.pack(side=tk.RIGHT)
 
-    def _create_action_buttons(self, parent):
         self.action_button = tk.Button(
-            parent,
+            main_container,
             text="Loading...",
             command=self.toggle_service,
             font=("Segoe UI", 11),
@@ -132,45 +123,31 @@ class WindowsUpdateDisabler:
     def update_status(self):
         image_path = self.get_image_path()
 
-        if image_path:
-            self._update_status_with_path(image_path)
-        else:
-            self._update_status_error()
+        if not image_path:
+            self.status_label.config(
+                text="⚠️ Cannot read registry", fg=self.COLORS["warning_text"]
+            )
+            self.status_indicator.config(text="⚠️")
+            self.action_button.config(
+                text="Run as Administrator Required",
+                bg="#cccccc",
+                state=tk.DISABLED,
+                relief=tk.FLAT,
+            )
+            return
 
-    def _update_status_with_path(self, image_path):
         enabled = self.is_service_enabled(image_path)
         state = "enabled" if enabled else "disabled"
         config = self.STATUS_CONFIG[state]
 
-        self._set_status(
-            config["text"], self.COLORS[f"{state}_text"], config["indicator"]
-        )
+        self.status_label.config(text=config["text"], fg=self.COLORS[f"{state}_text"])
+        self.status_indicator.config(text=config["indicator"])
 
         color_key = "danger" if enabled else "success"
-        self._set_action_button(
-            config["button_text"],
-            self.COLORS[color_key],
-            self.COLORS[f"{color_key}_active"],
-        )
-
-    def _update_status_error(self):
-        self._set_status("⚠️ Cannot read registry", self.COLORS["warning_text"], "⚠️")
         self.action_button.config(
-            text="Run as Administrator Required",
-            bg="#cccccc",
-            state=tk.DISABLED,
-            relief=tk.FLAT,
-        )
-
-    def _set_status(self, text, color, indicator):
-        self.status_label.config(text=text, fg=color)
-        self.status_indicator.config(text=indicator)
-
-    def _set_action_button(self, text, bg, active_bg):
-        self.action_button.config(
-            text=text,
-            bg=bg,
-            activebackground=active_bg,
+            text=config["button_text"],
+            bg=self.COLORS[color_key],
+            activebackground=self.COLORS[f"{color_key}_active"],
             state=tk.NORMAL,
             relief=tk.RAISED,
         )
@@ -196,32 +173,43 @@ class WindowsUpdateDisabler:
         enabled = self.is_service_enabled(image_path)
         new_path, action = self._get_toggle_params(image_path, enabled)
 
-        if enabled:
-            confirm_msg = (
-                "Are you sure you want to DISABLE Windows Update?\n\n"
-                "This will prevent both automatic AND manual Windows updates.\n\n"
-                "Note: Some apps like Microsoft Store use the Windows Update service.\n"
-                "You may need to re-enable it temporarily when installing apps from the Store."
-            )
-        else:
-            confirm_msg = (
-                "Are you sure you want to ENABLE Windows Update?\n\n"
-                "This will restore both automatic and manual Windows updates."
-            )
+        confirm_msg = (
+            "Are you sure you want to DISABLE Windows Update?\n\n"
+            "This will prevent both automatic AND manual Windows updates.\n\n"
+            "Note: Some apps like Microsoft Store use the Windows Update service.\n"
+            "You may need to re-enable it temporarily when installing apps from the Store."
+            if enabled
+            else "Are you sure you want to ENABLE Windows Update?\n\n"
+            "This will restore both automatic and manual Windows updates."
+        )
 
-        if messagebox.askyesno("Confirm Action", confirm_msg):
-            self._update_registry(new_path)
+        if not messagebox.askyesno("Confirm Action", confirm_msg):
+            return
 
-            if enabled:  # Disabling → stop service
-                self._control_service("stop")
-            else:  # Enabling → start service
-                self._control_service("start")
+        self._update_registry(new_path)
+        self.update_status()
 
-            messagebox.showinfo(
-                "Success",
-                f"Windows Update service has been {action}d.\n\nChanges take effect immediately.",
+        try:
+            self._control_service("stop" if enabled else "start")
+        except subprocess.TimeoutExpired:
+            messagebox.showwarning(
+                "Service Control Warning",
+                f"Service {action} command timed out after 15 seconds.\n\n"
+                "Registry updated successfully. Changes will apply fully after reboot.",
             )
-            self.update_status()
+            return
+        except Exception as e:
+            messagebox.showwarning(
+                "Service Control Warning",
+                f"Registry updated, but failed to {action} service:\n{str(e)}\n\n"
+                "Changes will apply fully after reboot.",
+            )
+            return
+
+        messagebox.showinfo(
+            "Success",
+            f"Windows Update service has been {action}d.\n\nChanges take effect immediately.",
+        )
 
     def _get_toggle_params(self, image_path, enabled):
         if enabled:
@@ -236,31 +224,20 @@ class WindowsUpdateDisabler:
             winreg.SetValueEx(key, self.VALUE_NAME, 0, winreg.REG_EXPAND_SZ, new_path)
 
     def _control_service(self, action):
-        """Stop/start the service after registry modification"""
-        try:
-            cmd = ["net", action, self.SERVICE_NAME]
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=15,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
-            if (
-                result.returncode != 0
-                and "The requested service has already been" not in result.stderr
-            ):
-                raise RuntimeError(
-                    result.stderr.strip()
-                    or f"Command failed with code {result.returncode}"
-                )
-        except subprocess.TimeoutExpired:
-            raise RuntimeError(f"Service {action} timed out after 15 seconds")
-        except Exception as e:
-            # don't fail the entire operation if service control fails
-            messagebox.showwarning(
-                "Service Control Warning",
-                f"Registry updated successfully, but failed to {action} service:\n{str(e)}",
+        cmd = ["net", action, self.SERVICE_NAME]
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if (
+            result.returncode != 0
+            and "The requested service has already been" not in result.stderr
+        ):
+            raise RuntimeError(
+                result.stderr.strip() or f"Command failed with code {result.returncode}"
             )
 
 
