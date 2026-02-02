@@ -238,7 +238,11 @@ class WindowsUpdateDisabler:
             )
 
     def _create_persistence_task(self):
-        xml_template_path = os.path.abspath("PersistWUADisable.xml")
+        if getattr(sys, "frozen", False):
+            xml_template_path = os.path.join(sys._MEIPASS, "PersistWUADisable.xml")
+        else:
+            xml_template_path = os.path.abspath("PersistWUADisable.xml")
+
         if not os.path.isfile(xml_template_path):
             return
 
@@ -248,8 +252,11 @@ class WindowsUpdateDisabler:
         )
         description = "Reapplies Windows Update disable state on system startup"
 
-        with open(xml_template_path, "r", encoding="utf-16") as f:
-            content = f.read()
+        try:
+            with open(xml_template_path, "r", encoding="utf-16") as f:
+                content = f.read()
+        except Exception:
+            return
 
         content = content.replace("{AUTHOR}", author)
         content = content.replace("{DESCRIPTION}", description)
@@ -257,11 +264,14 @@ class WindowsUpdateDisabler:
 
         import tempfile
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-16", delete=False, suffix=".xml"
-        ) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-16", delete=False, suffix=".xml"
+            ) as tmp:
+                tmp.write(content)
+                tmp_path = tmp.name
+        except Exception:
+            return
 
         try:
             subprocess.run(

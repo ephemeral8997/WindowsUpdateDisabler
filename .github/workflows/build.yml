@@ -5,10 +5,12 @@ on:
     branches: [ main ]
     paths:
       - 'windows_update_disabler.py'
+      - 'PersistWUADisable.xml'
   pull_request:
     branches: [ main ]
     paths:
       - 'windows_update_disabler.py'
+      - 'PersistWUADisable.xml'
   workflow_dispatch:
 
 jobs:
@@ -30,7 +32,7 @@ jobs:
     
     - name: Build EXE
       run: |
-        PyInstaller --onefile --noconsole --uac-admin --name WindowsUpdateDisabler windows_update_disabler.py
+        PyInstaller --onefile --noconsole --uac-admin --add-data "PersistWUADisable.xml;." --name WindowsUpdateDisabler windows_update_disabler.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
