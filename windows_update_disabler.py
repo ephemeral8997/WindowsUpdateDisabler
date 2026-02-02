@@ -193,9 +193,7 @@ class WindowsUpdateDisabler:
 
         try:
             self._control_service("stop" if enabled else "start")
-        except subprocess.TimeoutExpired:
-            pass
-        except Exception:
+        except:
             pass
 
         if enabled:
@@ -240,18 +238,21 @@ class WindowsUpdateDisabler:
             )
 
     def _create_persistence_task(self):
-        script = f"""
-        $action = New-ScheduledTaskAction -Execute "{sys.executable}" -Argument "{os.path.abspath(__file__)} --reapply-disable"
-        $trigger = New-ScheduledTaskTrigger -AtStartup
-        $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\\SYSTEM" -LogonType ServiceAccount
-        Register-ScheduledTask -TaskName "PersistWUADisable" -Action $action -Trigger $trigger -Principal $principal -Force
-        """
-        subprocess.run(["powershell", "-Command", script], capture_output=True)
+        xml_path = os.path.abspath("PersistWUADisable.xml")
+        if not os.path.isfile(xml_path):
+            return
+        subprocess.run(
+            ["schtasks", "/create", "/tn", "PersistWUADisable", "/xml", xml_path, "/f"],
+            capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+            timeout=15,
+        )
 
     def _remove_persistence_task(self):
         subprocess.run(
             ["schtasks", "/delete", "/tn", "PersistWUADisable", "/f"],
             capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
         )
 
     def _reapply_disable_if_needed(self):
