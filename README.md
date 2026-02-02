@@ -11,7 +11,6 @@ Built with **Python + Tkinter**.
 
   * `svchost.exe` ↔ `svchost0.exe`
 * Updates take effect immediately
-* No background services, no persistence
 
 ## How It Works (Technical)
 
@@ -63,6 +62,8 @@ Prebuilt binaries are produced automatically via **GitHub Actions**.
 
 * Microsoft Store and some Windows components rely on Windows Update.
 * To install Store apps, temporarily re-enable Windows Update.
+* When disabling, the tool creates a SYSTEM-level scheduled task (PersistWUADisable) that re-applies the registry change on every boot.
+* This persistence is automatically removed when you re-enable Windows Update via the tool.
 * This tool does not uninstall or permanently break Windows Update.
 
 ## Screenshots
