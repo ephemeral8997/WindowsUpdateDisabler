@@ -246,7 +246,7 @@ class WindowsUpdateDisabler:
         if not os.path.isfile(xml_template_path):
             return
 
-        exe_path = os.path.abspath(sys.executable).replace("\\", "\\\\")
+        exe_path = os.path.abspath(sys.executable)
         author = (
             os.environ.get("USERDOMAIN", "") + "\\" + os.environ.get("USERNAME", "")
         )
