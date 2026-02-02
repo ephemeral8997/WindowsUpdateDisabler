@@ -239,7 +239,7 @@ class WindowsUpdateDisabler:
 
     def _create_persistence_task(self):
         if getattr(sys, "frozen", False):
-            xml_template_path = os.path.join(sys._MEIPASS, "PersistWUADisable.xml")
+            xml_template_path = os.path.join(sys._MEIPASS, "PersistWUADisable.xml")  # type: ignore
         else:
             xml_template_path = os.path.abspath("PersistWUADisable.xml")
 
