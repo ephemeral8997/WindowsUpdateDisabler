@@ -238,15 +238,51 @@ class WindowsUpdateDisabler:
             )
 
     def _create_persistence_task(self):
-        xml_path = os.path.abspath("PersistWUADisable.xml")
-        if not os.path.isfile(xml_path):
+        xml_template_path = os.path.abspath("PersistWUADisable.xml")
+        if not os.path.isfile(xml_template_path):
             return
-        subprocess.run(
-            ["schtasks", "/create", "/tn", "PersistWUADisable", "/xml", xml_path, "/f"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-            timeout=15,
+
+        exe_path = os.path.abspath(sys.executable).replace("\\", "\\\\")
+        author = (
+            os.environ.get("USERDOMAIN", "") + "\\" + os.environ.get("USERNAME", "")
         )
+        description = "Reapplies Windows Update disable state on system startup"
+
+        with open(xml_template_path, "r", encoding="utf-16") as f:
+            content = f.read()
+
+        content = content.replace("{AUTHOR}", author)
+        content = content.replace("{DESCRIPTION}", description)
+        content = content.replace("{EXECUTABLE_PATH}", exe_path)
+
+        import tempfile
+
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-16", delete=False, suffix=".xml"
+        ) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        try:
+            subprocess.run(
+                [
+                    "schtasks",
+                    "/create",
+                    "/tn",
+                    "PersistWUADisable",
+                    "/xml",
+                    tmp_path,
+                    "/f",
+                ],
+                capture_output=True,
+                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
+                timeout=15,
+            )
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except:
+                pass
 
     def _remove_persistence_task(self):
         subprocess.run(
