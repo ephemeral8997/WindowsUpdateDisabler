@@ -30,7 +30,7 @@ jobs:
     
     - name: Build EXE
       run: |
-        pyinstaller --onefile --noconsole --uac-admin --name WindowsUpdateDisabler windows_update_disabler.py
+        PyInstaller --onefile --noconsole --uac-admin --name WindowsUpdateDisabler windows_update_disabler.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
