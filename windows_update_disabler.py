@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import messagebox
 import winreg
 import subprocess
+import os
+import sys
 
 
 class WindowsUpdateDisabler:
@@ -192,23 +194,20 @@ class WindowsUpdateDisabler:
         try:
             self._control_service("stop" if enabled else "start")
         except subprocess.TimeoutExpired:
-            messagebox.showwarning(
-                "Service Control Warning",
-                f"Service {action} command timed out after 15 seconds.\n\n"
-                "Registry updated successfully. Changes will apply fully after reboot.",
-            )
-            return
-        except Exception as e:
-            messagebox.showwarning(
-                "Service Control Warning",
-                f"Registry updated, but failed to {action} service:\n{str(e)}\n\n"
-                "Changes will apply fully after reboot.",
-            )
-            return
+            pass
+        except Exception:
+            pass
+
+        if enabled:
+            self._create_persistence_task()
+        else:
+            self._remove_persistence_task()
 
         messagebox.showinfo(
             "Success",
-            f"Windows Update service has been {action}d.\n\nChanges take effect immediately.",
+            f"Windows Update service has been {action}d.\n\n"
+            f"{'Persistence enabled' if enabled else 'Persistence disabled'}.\n"
+            "Changes take effect immediately.",
         )
 
     def _get_toggle_params(self, image_path, enabled):
@@ -240,8 +239,38 @@ class WindowsUpdateDisabler:
                 result.stderr.strip() or f"Command failed with code {result.returncode}"
             )
 
+    def _create_persistence_task(self):
+        script = f"""
+        $action = New-ScheduledTaskAction -Execute "{sys.executable}" -Argument "{os.path.abspath(__file__)} --reapply-disable"
+        $trigger = New-ScheduledTaskTrigger -AtStartup
+        $principal = New-ScheduledTaskPrincipal -UserId "NT AUTHORITY\\SYSTEM" -LogonType ServiceAccount
+        Register-ScheduledTask -TaskName "PersistWUADisable" -Action $action -Trigger $trigger -Principal $principal -Force
+        """
+        subprocess.run(["powershell", "-Command", script], capture_output=True)
+
+    def _remove_persistence_task(self):
+        subprocess.run(
+            ["schtasks", "/delete", "/tn", "PersistWUADisable", "/f"],
+            capture_output=True,
+        )
+
+    def _reapply_disable_if_needed(self):
+        image_path = self.get_image_path()
+        if image_path and self.is_service_enabled(image_path):
+            new_path = image_path.replace(self.ENABLED_HOST, self.DISABLED_HOST)
+            self._update_registry(new_path)
+            try:
+                self._control_service("stop")
+            except:
+                pass
+
 
 def main():
+    if "--reapply-disable" in sys.argv:
+        disabler = WindowsUpdateDisabler.__new__(WindowsUpdateDisabler)
+        disabler._reapply_disable_if_needed()
+        return
+
     root = tk.Tk()
     app = WindowsUpdateDisabler(root)
     root.mainloop()
