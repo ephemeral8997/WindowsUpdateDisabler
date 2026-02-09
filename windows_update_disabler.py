@@ -4,14 +4,15 @@ import winreg
 import subprocess
 import os
 import sys
+import tempfile
 
 
 class WindowsUpdateDisabler:
     REGISTRY_PATH = r"SYSTEM\CurrentControlSet\Services\wuauserv"
     VALUE_NAME = "ImagePath"
     SERVICE_NAME = "wuauserv"
-    ENABLED_HOST = "svchost.exe"
-    DISABLED_HOST = "svchost0.exe"
+    TASK_NAME = "PersistWUADisable"
+    ENABLED_HOST, DISABLED_HOST = "svchost.exe", "svchost0.exe"
 
     COLORS = {
         "bg": "#f0f0f0",
@@ -22,305 +23,213 @@ class WindowsUpdateDisabler:
         "success_active": "#0e6b0e",
         "danger": "#D13438",
         "danger_active": "#b02b2f",
-        "text_bg": "white",
         "enabled_text": "#107C10",
         "disabled_text": "#D13438",
         "warning_text": "#ca5010",
     }
 
     STATUS_CONFIG = {
-        "enabled": {
+        True: {
             "text": "Windows Update is enabled",
             "indicator": "✓",
-            "button_text": "Disable Windows Update",
+            "btn": "Disable Windows Update",
+            "color": "danger",
         },
-        "disabled": {
+        False: {
             "text": "Windows Update is disabled",
             "indicator": "✕",
-            "button_text": "Enable Windows Update",
+            "btn": "Enable Windows Update",
+            "color": "success",
         },
     }
 
-    def __init__(self, root):
+    def __init__(self, root=None):
         self.root = root
-        self._setup_window()
-        self.create_widgets()
-        self.update_status()
+        if root:
+            self._setup_window()
+            self.create_widgets()
+            self.update_status()
 
     def _setup_window(self):
-        self.root.title("Windows Update Controller")
-        self.root.geometry("420x200")
-        self.root.resizable(False, False)
-        self.root.configure(bg=self.COLORS["bg"])
-        try:
-            self.root.iconbitmap(default="")
-        except:
-            pass
+        root = self.root
+        if not root:
+            return
+
+        root.title("Windows Update Controller")
+        root.geometry("420x200")
+        root.resizable(False, False)
+        root.configure(bg=self.COLORS["bg"])
 
     def create_widgets(self):
-        main_container = tk.Frame(self.root, bg=self.COLORS["bg"])
-        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main = tk.Frame(self.root, bg=self.COLORS["bg"])
+        main.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
         tk.Label(
-            main_container,
+            main,
             text="Windows Update Service Controller",
             font=("Segoe UI", 14),
             bg=self.COLORS["bg"],
-            fg="black",
         ).pack(pady=(10, 20))
 
         status_frame = tk.Frame(
-            main_container, bg=self.COLORS["white"], relief=tk.SOLID, borderwidth=1
+            main, bg=self.COLORS["white"], relief=tk.SOLID, borderwidth=1
         )
         status_frame.pack(fill=tk.X, pady=(0, 15), padx=20)
 
-        status_container = tk.Frame(status_frame, bg=self.COLORS["white"])
-        status_container.pack(fill=tk.X, padx=15, pady=12)
-
         self.status_label = tk.Label(
-            status_container,
-            text="Checking status...",
+            status_frame,
+            text="Checking...",
             font=("Segoe UI", 11),
             bg=self.COLORS["white"],
-            fg="black",
         )
-        self.status_label.pack(side=tk.LEFT, expand=True, fill=tk.X)
+        self.status_label.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=15, pady=12)
 
         self.status_indicator = tk.Label(
-            status_container, text="⚪", font=("Segoe UI", 16), bg=self.COLORS["white"]
+            status_frame, text="⚪", font=("Segoe UI", 16), bg=self.COLORS["white"]
         )
-        self.status_indicator.pack(side=tk.RIGHT)
+        self.status_indicator.pack(side=tk.RIGHT, padx=15)
 
         self.action_button = tk.Button(
-            main_container,
+            main,
             text="Loading...",
             command=self.toggle_service,
             font=("Segoe UI", 11),
-            bg=self.COLORS["primary"],
             fg="white",
-            activebackground=self.COLORS["primary_active"],
-            activeforeground="white",
             relief=tk.FLAT,
-            borderwidth=0,
             height=2,
             cursor="hand2",
         )
         self.action_button.pack(pady=10, padx=20, fill=tk.X)
 
-    def get_image_path(self):
+    def _run_cmd(self, cmd, silent=True):
+        flags = subprocess.CREATE_NO_WINDOW
+        if silent:
+            flags |= subprocess.DETACHED_PROCESS
+        return subprocess.run(
+            cmd, capture_output=True, text=True, timeout=15, creationflags=flags
+        )
+
+    def _get_registry_value(self):
         try:
             with winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE, self.REGISTRY_PATH, 0, winreg.KEY_READ
             ) as key:
-                image_path, _ = winreg.QueryValueEx(key, self.VALUE_NAME)
-                return image_path
+                return winreg.QueryValueEx(key, self.VALUE_NAME)[0]
         except Exception:
             return None
 
-    def is_service_enabled(self, image_path):
-        if not image_path:
-            return False
-        return self.ENABLED_HOST in image_path and self.DISABLED_HOST not in image_path
-
     def update_status(self):
-        image_path = self.get_image_path()
-
-        if not image_path:
+        path = self._get_registry_value()
+        if not path:
             self.status_label.config(
-                text="⚠️ Cannot read registry", fg=self.COLORS["warning_text"]
+                text="⚠️ Run as Administrator Required", fg=self.COLORS["warning_text"]
             )
-            self.status_indicator.config(text="⚠️")
-            self.action_button.config(
-                text="Run as Administrator Required",
-                bg="#cccccc",
-                state=tk.DISABLED,
-                relief=tk.FLAT,
-            )
+            self.action_button.config(state=tk.DISABLED, bg="#cccccc")
             return
 
-        enabled = self.is_service_enabled(image_path)
-        state = "enabled" if enabled else "disabled"
-        config = self.STATUS_CONFIG[state]
+        is_enabled = self.ENABLED_HOST in path and self.DISABLED_HOST not in path
+        cfg = self.STATUS_CONFIG[is_enabled]
+        state_key = "enabled" if is_enabled else "disabled"
 
-        self.status_label.config(text=config["text"], fg=self.COLORS[f"{state}_text"])
-        self.status_indicator.config(text=config["indicator"])
-
-        color_key = "danger" if enabled else "success"
+        self.status_label.config(text=cfg["text"], fg=self.COLORS[f"{state_key}_text"])
+        self.status_indicator.config(text=cfg["indicator"])
         self.action_button.config(
-            text=config["button_text"],
-            bg=self.COLORS[color_key],
-            activebackground=self.COLORS[f"{color_key}_active"],
+            text=cfg["btn"],
+            bg=self.COLORS[cfg["color"]],
+            activebackground=self.COLORS[f"{cfg['color']}_active"],
             state=tk.NORMAL,
-            relief=tk.RAISED,
         )
 
     def toggle_service(self):
-        image_path = self.get_image_path()
+        path = self._get_registry_value()
+        if not path:
+            return
 
-        if not image_path:
-            messagebox.showerror("Error", "Could not read current ImagePath value")
+        is_enabled = self.ENABLED_HOST in path and self.DISABLED_HOST not in path
+        new_path = (
+            path.replace(self.ENABLED_HOST, self.DISABLED_HOST)
+            if is_enabled
+            else path.replace(self.DISABLED_HOST, self.ENABLED_HOST)
+        )
+
+        msg = (
+            "DISABLE Windows Update?\n\nThis affects Microsoft Store."
+            if is_enabled
+            else "ENABLE Windows Update?\n\nThis restores automatic updates."
+        )
+
+        if not messagebox.askyesno("Confirm", msg):
             return
 
         try:
-            self._perform_toggle(image_path)
-        except PermissionError:
-            messagebox.showerror(
-                "Permission Error",
-                "Permission denied!\n\nPlease run this application as Administrator.",
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE, self.REGISTRY_PATH, 0, winreg.KEY_WRITE
+            ) as key:
+                winreg.SetValueEx(
+                    key, self.VALUE_NAME, 0, winreg.REG_EXPAND_SZ, new_path
+                )
+
+            self._run_cmd(["net", "stop" if is_enabled else "start", self.SERVICE_NAME])
+            self._manage_persistence(is_enabled)
+            self.update_status()
+            messagebox.showinfo(
+                "Success", f"Service {'disabled' if is_enabled else 'enabled'}."
             )
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to modify registry:\n{str(e)}")
+            messagebox.showerror("Error", str(e))
 
-    def _perform_toggle(self, image_path):
-        enabled = self.is_service_enabled(image_path)
-        new_path, action = self._get_toggle_params(image_path, enabled)
-
-        confirm_msg = (
-            "Are you sure you want to DISABLE Windows Update?\n\n"
-            "This will prevent both automatic AND manual Windows updates.\n\n"
-            "Note: Some apps like Microsoft Store use the Windows Update service.\n"
-            "You may need to re-enable it temporarily when installing apps from the Store."
-            if enabled
-            else "Are you sure you want to ENABLE Windows Update?\n\n"
-            "This will restore both automatic and manual Windows updates."
-        )
-
-        if not messagebox.askyesno("Confirm Action", confirm_msg):
+    def _manage_persistence(self, enable_task):
+        if not enable_task:
+            self._run_cmd(["schtasks", "/delete", "/tn", self.TASK_NAME, "/f"])
             return
 
-        self._update_registry(new_path)
-        self.update_status()
+        base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
+        xml_path = os.path.join(base_path, "PersistWUADisable.xml")
 
-        try:
-            self._control_service("stop" if enabled else "start")
-        except:
-            pass
+        if not os.path.exists(xml_path):
+            return
 
-        if enabled:
-            self._create_persistence_task()
-        else:
-            self._remove_persistence_task()
-
-        messagebox.showinfo(
-            "Success",
-            f"Windows Update service has been {action}d.\n\n"
-            f"{'Persistence enabled' if enabled else 'Persistence disabled'}.\n"
-            "Changes take effect immediately.",
-        )
-
-    def _get_toggle_params(self, image_path, enabled):
-        if enabled:
-            return image_path.replace(self.ENABLED_HOST, self.DISABLED_HOST), "disable"
-        else:
-            return image_path.replace(self.DISABLED_HOST, self.ENABLED_HOST), "enable"
-
-    def _update_registry(self, new_path):
-        with winreg.OpenKey(
-            winreg.HKEY_LOCAL_MACHINE, self.REGISTRY_PATH, 0, winreg.KEY_WRITE
-        ) as key:
-            winreg.SetValueEx(key, self.VALUE_NAME, 0, winreg.REG_EXPAND_SZ, new_path)
-
-    def _control_service(self, action):
-        cmd = ["net", action, self.SERVICE_NAME]
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if (
-            result.returncode != 0
-            and "The requested service has already been" not in result.stderr
-        ):
-            raise RuntimeError(
-                result.stderr.strip() or f"Command failed with code {result.returncode}"
+        with open(xml_path, "r", encoding="utf-16") as f:
+            content = (
+                f.read()
+                .replace("{AUTHOR}", os.environ.get("USERNAME", "System"))
+                .replace("{DESCRIPTION}", "Maintains WU disable state")
+                .replace("{EXECUTABLE_PATH}", f'"{sys.executable}"')
             )
 
-    def _create_persistence_task(self):
-        if getattr(sys, "frozen", False):
-            xml_template_path = os.path.join(sys._MEIPASS, "PersistWUADisable.xml")  # type: ignore
-        else:
-            xml_template_path = os.path.abspath("PersistWUADisable.xml")
-
-        if not os.path.isfile(xml_template_path):
-            return
-
-        exe_path = os.path.abspath(sys.executable)
-        author = (
-            os.environ.get("USERDOMAIN", "") + "\\" + os.environ.get("USERNAME", "")
-        )
-        description = "Reapplies Windows Update disable state on system startup"
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-16", delete=False, suffix=".xml"
+        ) as tmp:
+            tmp.write(content)
+            tmp_name = tmp.name
 
         try:
-            with open(xml_template_path, "r", encoding="utf-16") as f:
-                content = f.read()
-        except Exception:
-            return
-
-        content = content.replace("{AUTHOR}", author)
-        content = content.replace("{DESCRIPTION}", description)
-        content = content.replace("{EXECUTABLE_PATH}", exe_path)
-
-        import tempfile
-
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", encoding="utf-16", delete=False, suffix=".xml"
-            ) as tmp:
-                tmp.write(content)
-                tmp_path = tmp.name
-        except Exception:
-            return
-
-        try:
-            subprocess.run(
-                [
-                    "schtasks",
-                    "/create",
-                    "/tn",
-                    "PersistWUADisable",
-                    "/xml",
-                    tmp_path,
-                    "/f",
-                ],
-                capture_output=True,
-                creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-                timeout=15,
+            self._run_cmd(
+                ["schtasks", "/create", "/tn", self.TASK_NAME, "/xml", tmp_name, "/f"]
             )
         finally:
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
+            os.unlink(tmp_name)
 
-    def _remove_persistence_task(self):
-        subprocess.run(
-            ["schtasks", "/delete", "/tn", "PersistWUADisable", "/f"],
-            capture_output=True,
-            creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS,
-        )
-
-    def _reapply_disable_if_needed(self):
-        image_path = self.get_image_path()
-        if image_path and self.is_service_enabled(image_path):
-            new_path = image_path.replace(self.ENABLED_HOST, self.DISABLED_HOST)
-            self._update_registry(new_path)
-            try:
-                self._control_service("stop")
-            except:
-                pass
+    def headless_reapply(self):
+        path = self._get_registry_value()
+        if path and self.ENABLED_HOST in path and self.DISABLED_HOST not in path:
+            new_path = path.replace(self.ENABLED_HOST, self.DISABLED_HOST)
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE, self.REGISTRY_PATH, 0, winreg.KEY_WRITE
+            ) as key:
+                winreg.SetValueEx(
+                    key, self.VALUE_NAME, 0, winreg.REG_EXPAND_SZ, new_path
+                )
+            self._run_cmd(["net", "stop", self.SERVICE_NAME])
 
 
 def main():
     if "--reapply-disable" in sys.argv:
-        disabler = WindowsUpdateDisabler.__new__(WindowsUpdateDisabler)
-        disabler._reapply_disable_if_needed()
-        return
-
-    root = tk.Tk()
-    app = WindowsUpdateDisabler(root)
-    root.mainloop()
+        WindowsUpdateDisabler().headless_reapply()
+    else:
+        root = tk.Tk()
+        WindowsUpdateDisabler(root)
+        root.mainloop()
 
 
 if __name__ == "__main__":
