@@ -5,6 +5,7 @@ import subprocess
 import os
 import sys
 import tempfile
+import shutil
 
 
 class WindowsUpdateDisabler:
@@ -51,14 +52,12 @@ class WindowsUpdateDisabler:
             self.update_status()
 
     def _setup_window(self):
-        root = self.root
-        if not root:
+        if not self.root:
             return
-
-        root.title("Windows Update Controller")
-        root.geometry("420x200")
-        root.resizable(False, False)
-        root.configure(bg=self.COLORS["bg"])
+        self.root.title("Windows Update Controller")
+        self.root.geometry("420x200")
+        self.root.resizable(False, False)
+        self.root.configure(bg=self.COLORS["bg"])
 
     def create_widgets(self):
         main = tk.Frame(self.root, bg=self.COLORS["bg"])
@@ -105,9 +104,33 @@ class WindowsUpdateDisabler:
         flags = subprocess.CREATE_NO_WINDOW
         if silent:
             flags |= subprocess.DETACHED_PROCESS
-        return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=15, creationflags=flags
-        )
+        try:
+            return subprocess.run(
+                cmd, capture_output=True, text=True, timeout=15, creationflags=flags
+            )
+        except Exception:
+            return None
+
+    def _reset_components(self):
+        """Resets Windows Update folders to clear cache and corruption."""
+        # stop related services first to unlock files
+        services = ["wuauserv", "bits", "cryptsvc", "msiserver"]
+        for svc in services:
+            self._run_cmd(["net", "stop", svc])
+
+        windir = os.environ.get("WINDIR", "C:\\Windows")
+        paths = [
+            os.path.join(windir, "SoftwareDistribution"),
+            os.path.join(windir, "System32", "catroot2"),
+        ]
+
+        for path in paths:
+            if os.path.exists(path):
+                try:
+                    # Rename is safer/more reliable than immediate deletion while script runs
+                    shutil.rmtree(path, ignore_errors=True)
+                except Exception:
+                    pass
 
     def _get_registry_value(self):
         try:
@@ -155,13 +178,16 @@ class WindowsUpdateDisabler:
         msg = (
             "DISABLE Windows Update?\n\nThis affects Microsoft Store."
             if is_enabled
-            else "ENABLE Windows Update?\n\nThis restores automatic updates."
+            else "ENABLE and RESET Windows Update?\n\nThis will clear the update cache and restore services."
         )
 
         if not messagebox.askyesno("Confirm", msg):
             return
 
         try:
+            if not is_enabled:
+                self._reset_components()
+
             with winreg.OpenKey(
                 winreg.HKEY_LOCAL_MACHINE, self.REGISTRY_PATH, 0, winreg.KEY_WRITE
             ) as key:
@@ -169,11 +195,14 @@ class WindowsUpdateDisabler:
                     key, self.VALUE_NAME, 0, winreg.REG_EXPAND_SZ, new_path
                 )
 
+            # Start/Stop Service
             self._run_cmd(["net", "stop" if is_enabled else "start", self.SERVICE_NAME])
+
             self._manage_persistence(is_enabled)
             self.update_status()
             messagebox.showinfo(
-                "Success", f"Service {'disabled' if is_enabled else 'enabled'}."
+                "Success",
+                f"Service {'disabled' if is_enabled else 'enabled and reset'}.",
             )
         except Exception as e:
             messagebox.showerror("Error", str(e))
@@ -185,7 +214,6 @@ class WindowsUpdateDisabler:
 
         base_path = getattr(sys, "_MEIPASS", os.path.abspath(os.path.dirname(__file__)))
         xml_path = os.path.join(base_path, "PersistWUADisable.xml")
-
         if not os.path.exists(xml_path):
             return
 
