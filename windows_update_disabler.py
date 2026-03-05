@@ -204,6 +204,11 @@ class WindowsUpdateDisabler:
                 "Success",
                 f"Service {'disabled' if is_enabled else 'enabled and reset'}.",
             )
+            if not is_enabled and messagebox.askyesno(
+                "Restart Required",
+                "A restart is recommended for changes to take effect.\n\nRestart now?"
+            ):
+                os.system("shutdown /r /t 0")
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
